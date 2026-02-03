@@ -23,6 +23,14 @@ except Exception:
     spots_df = pd.DataFrame()
 
 
+@app.get("/all")
+def get_all_spots():
+    if spots_df.empty:
+        return []
+    # Only return what the map needs (bandwidth optimization)
+    return spots_df[["name", "lat", "lng", "country"]].to_dict(orient="records")
+
+
 @app.get("/search")
 def search_spots(q: str):
     if spots_df.empty:
@@ -52,28 +60,45 @@ def get_live_report(spot_name: str):
         raise HTTPException(503, "Offline")
 
     # Merge Logic
+    # We prioritize the "Wind Station" for temp, but fallback to "Swell Buoy" if missing
     data = swell_data if swell_data is not None else pd.Series(dtype=float)
-    if wind_data is not None:
-        data["WindSpeed"] = wind_data["WindSpeed"]
-        data["WindGust"] = wind_data["WindGust"]
-        data["WindDir"] = wind_data["WindDir"]
-    data = data.fillna(0.0)
 
-    # 3. Calculate Score (Using Core)
+    if wind_data is not None:
+        data["WindSpeed"] = wind_data.get("WindSpeed", 0.0)
+        data["WindGust"] = wind_data.get("WindGust", 0.0)
+        data["WindDir"] = wind_data.get("WindDir", 0.0)
+        # If wind station has temps, overwrite swell buoy temps (usually more accurate for coast)
+        if "WaterTemp" in wind_data:
+            data["WaterTemp"] = wind_data["WaterTemp"]
+        if "AirTemp" in wind_data:
+            data["AirTemp"] = wind_data["AirTemp"]
+
+    # Fill NaNs for Physics Engine (temps can remain NaN if missing)
+    physics_data = data.fillna(0.0)
+
+    # 3. Calculate Score
     score = calculate_physics_score(
         spot["beach_facing_deg"],
-        data["WindDir"],
-        data["WindSpeed"],
-        data["WindGust"],
-        data["SwellHeight"],
-        data["SwellPeriod"],
+        physics_data.get("WindDir", 0.0),
+        physics_data.get("WindSpeed", 0.0),
+        physics_data.get("WindGust", 0.0),
+        physics_data.get("SwellHeight", 0.0),
+        physics_data.get("SwellPeriod", 0.0),
     )
+
+    # 4. Helper for safe formatting
+    def fmt_temp(val):
+        return f"{val:.1f}°F" if pd.notna(val) and val != 0 else "--"
 
     return {
         "name": spot["name"],
+        "location": spot["country"],  # Added Location Label
         "score": round(score, 1),
         "conditions": {
-            "swell": f"{data['SwellHeight']:.1f}ft @ {data['SwellPeriod']:.0f}s",
-            "wind": f"{data['WindSpeed']:.1f}kts",
+            "swell": f"{physics_data.get('SwellHeight', 0):.1f}ft @ {physics_data.get('SwellPeriod', 0):.0f}s",
+            "wind": f"{physics_data.get('WindSpeed', 0):.1f}kts",
+            # New Temp Fields
+            "water_temp": fmt_temp(data.get("WaterTemp")),
+            "air_temp": fmt_temp(data.get("AirTemp")),
         },
     }

@@ -10,9 +10,13 @@ def fetch_single_station_data(station_id):
     Fetches live data for a single station ID from NOAA.
     Used by: main.py, api.py
     """
-    url = f"https://www.ndbc.noaa.gov/data/realtime2/{station_id}.txt"
+    # FIX: Add .upper() to handle IDs like 'yktv2' correctly
+    url = f"https://www.ndbc.noaa.gov/data/realtime2/{station_id.upper()}.txt"
     try:
+        # 1. Parse using Pandas (Robust handling of whitespace and missing values)
         df = pd.read_csv(url, sep=r"\s+", skiprows=[1], na_values="MM")
+
+        # 2. Rename Columns (Added WaterTemp and AirTemp)
         df = df.rename(
             columns={
                 "WDIR": "WindDir",
@@ -20,15 +24,27 @@ def fetch_single_station_data(station_id):
                 "GST": "WindGust",
                 "WVHT": "SwellHeight",
                 "DPD": "SwellPeriod",
+                "WTMP": "WaterTemp",  # <--- NEW
+                "ATMP": "AirTemp",  # <--- NEW
             }
         )
-        # Convert Units
+
+        # 3. Convert Units
         df["WindSpeed"] *= 1.94384  # m/s -> knots
         df["WindGust"] *= 1.94384
         df["SwellHeight"] *= 3.28084  # m -> ft
 
+        # 4. Temp Conversion (Celsius -> Fahrenheit)
+        # Check if columns exist first (some buoys don't have Air Temp)
+        if "WaterTemp" in df.columns:
+            df["WaterTemp"] = df["WaterTemp"] * 9 / 5 + 32
+
+        if "AirTemp" in df.columns:
+            df["AirTemp"] = df["AirTemp"] * 9 / 5 + 32
+
         return df.iloc[0].copy()
-    except Exception:
+    except Exception as e:
+        # print(f"Debug Error: {e}") # Uncomment to debug
         return None
 
 
