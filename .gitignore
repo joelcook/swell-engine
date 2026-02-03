@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment (Crucial)
+venv/
+.env
+
+# Mac System Files
+.DS_Store
+
+# VS Code Settings
+.vscode/
+
+# Raw Data (Re-downloadable)
+all_noaa_buoys.json
